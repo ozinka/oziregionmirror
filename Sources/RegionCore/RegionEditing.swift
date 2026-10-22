@@ -29,13 +29,16 @@ public enum RegionEditing {
     }
 
     public static func applying(_ handle: RegionHandle, delta: CGSize,
-                                to region: CaptureRegion, bounds: CGRect) -> CaptureRegion {
+                                to region: CaptureRegion, bounds: CGRect, aspectRatio: Double? = nil) -> CaptureRegion {
         let rect = region.rect
         if handle == .move {
             return CaptureRegion(displayID: region.displayID, rect: CGRect(
                 x: clamp(rect.minX + delta.width, bounds.minX, bounds.maxX - rect.width),
                 y: clamp(rect.minY + delta.height, bounds.minY, bounds.maxY - rect.height),
                 width: rect.width, height: rect.height))
+        }
+        if let ratio = aspectRatio, ratio.isFinite, ratio > 0 {
+            return resizing(handle, delta: delta, region: region, bounds: bounds, ratio: ratio)
         }
         var left = rect.minX
         var right = rect.maxX
@@ -55,6 +58,47 @@ public enum RegionEditing {
         }
         return CaptureRegion(displayID: region.displayID,
             rect: CGRect(x: left, y: top, width: right - left, height: bottom - top))
+    }
+
+    /// Exact dimensions are never silently reduced. The region is centered, then moved inside bounds.
+    public static func sized(_ size: CGSize, around region: CaptureRegion, in bounds: CGRect) -> CaptureRegion? {
+        guard size.width.isFinite, size.height.isFinite, size.width >= 32, size.height >= 32,
+              size.width <= bounds.width, size.height <= bounds.height else { return nil }
+        return CaptureRegion(displayID: region.displayID, rect: CGRect(
+            x: clamp(region.rect.midX - size.width / 2, bounds.minX, bounds.maxX - size.width),
+            y: clamp(region.rect.midY - size.height / 2, bounds.minY, bounds.maxY - size.height),
+            width: size.width, height: size.height))
+    }
+
+    private static func resizing(_ handle: RegionHandle, delta: CGSize, region: CaptureRegion,
+                                 bounds: CGRect, ratio: Double) -> CaptureRegion {
+        let left = [.topLeft, .left, .bottomLeft].contains(handle)
+        let right = [.topRight, .right, .bottomRight].contains(handle)
+        let top = [.topLeft, .top, .topRight].contains(handle)
+        let bottom = [.bottomLeft, .bottom, .bottomRight].contains(handle)
+        let ax = left ? 1.0 : right ? 0.0 : 0.5
+        let ay = top ? 1.0 : bottom ? 0.0 : 0.5
+        let anchor = CGPoint(x: region.x + ax * region.width, y: region.y + ay * region.height)
+        let dx = delta.width * (left ? -1 : 1)
+        let dy = delta.height * (top ? -1 : 1)
+        let change: Double
+        if (left || right) && (top || bottom) {
+            // Project corner movement onto the fixed-ratio diagonal.
+            change = (dx + dy / ratio) / (1 + 1 / (ratio * ratio))
+        } else {
+            change = (left || right) ? dx : dy * ratio
+        }
+        var maximum = Double.infinity
+        if ax > 0 { maximum = min(maximum, (anchor.x - bounds.minX) / ax) }
+        if ax < 1 { maximum = min(maximum, (bounds.maxX - anchor.x) / (1 - ax)) }
+        if ay > 0 { maximum = min(maximum, (anchor.y - bounds.minY) * ratio / ay) }
+        if ay < 1 { maximum = min(maximum, (bounds.maxY - anchor.y) * ratio / (1 - ay)) }
+        let minimum = max(32, 32 * ratio)
+        guard maximum >= minimum else { return region }
+        let width = clamp(region.width + change, minimum, maximum)
+        let height = width / ratio
+        return CaptureRegion(displayID: region.displayID, rect: CGRect(
+            x: anchor.x - ax * width, y: anchor.y - ay * height, width: width, height: height))
     }
 
     private static func clamp(_ value: Double, _ lower: Double, _ upper: Double) -> Double {

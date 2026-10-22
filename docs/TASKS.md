@@ -12,8 +12,8 @@ Statuses: `implemented` means code exists and automated validation passed; `acce
 | T006 | Manual acceptance, lifecycle and permission hardening | partial — permission guidance implemented; manual acceptance next | M | Sol | T005 |
 | T016 | Image clarity diagnosis and pixel-aware mirror sizing | sizing implemented; manual quality checks pending | M | Sol | T005 |
 | T007 | Seamless source updates and draggable/resizable region | same-display editing implemented; manual checks pending | L | Sol | T006 |
-| T017 | Compact presenting controls and unobtrusive mirror experiment | todo | M | Sol | T007 |
-| T008 | Fixed-size region presets and quality preferences | todo | S | Luna | T006 |
+| T017 | Compact presenting controls and unobtrusive mirror experiment | parked output implemented; overlay experiment removed; Teams checks pending | M | Sol | T007 |
+| T008 | Fixed-size region presets and quality preferences | standard sizes implemented; FPS/cap preferences pending | S | Luna | T006 |
 | T009 | Persistent display identity, preset rename/update/migration | todo | M | Luna/Sol | T006 |
 | T010 | Custom global preset and hide shortcuts | todo | M | Sol | T009 |
 | T011 | Presenter preview | todo | S | Luna | T006 |
@@ -22,6 +22,16 @@ Statuses: `implemented` means code exists and automated validation passed; `acce
 | T014 | Zoom loupe and optional visual blur | todo | M | Sol | T012 |
 | T015 | Daily-use acceptance and performance tuning | todo | M | Sol | T007–T011 |
 | T018 | Original macOS application icon | accepted | S | Luna | T001 |
+| T019 | Compact Controls, saved-region dimensions and aspect lock | implemented; manual checks pending | M | Sol | T007 |
+| T020 | Dock visibility and adaptive Controls layout | implemented; manual checks pending | S | Luna | T019 |
+
+## T020 — Dock visibility and Controls layout
+
+Implemented 2026-10-09: Hide Dock Icon / Show Dock Icon in the menu bar uses `NSApplication.setActivationPolicy` and persists `hideDockIcon`; startup applies it before the event loop. Both menu copies update their title from actual activation policy. Controls adapts to natural content height up to 760 points or usable display height, preserving its top edge. Width 620 points; scrolling only beyond the cap. Saved-region dimensions are right-aligned in the name row; position coordinates follow the dimensions in that row. Native five-preset layout with diagnostics/notice measured 697 points; both policy transitions passed. No capture or user preference writes in the diagnostic. Manual pending: toggle from real menu during capture, reopen Controls while Dock-hidden, relaunch persistence, long names/unavailable displays and overflow at ten entries/small displays.
+
+## T019 — Controls and aspect ratio
+
+Implemented 2026-10-09: remove drag/Teams instruction paragraphs; saved-region dimensions in points and current-display capture pixels. T020 supersedes the initial scrolling/stacked-row layout with adaptive height and inline dimensions. Aspect choices Free/Current/16:9/4:3/1:1 apply to the source crop; selecting a ratio normalizes around the crop center. Corners keep the opposite corner fixed; side handles keep the opposite edge and perpendicular center fixed. All edits clamp to usable bounds and 32-point minimum while retaining ratio. Existing stream update queue applies changes. New selection/preset/standard size resets lock to Free; no preset schema migration or persisted ratio. Six focused geometry/sizing tests pass (28 total). Native UI, all-handle Escape and Teams checks remain pending.
 
 ## T018 — Application icon
 
@@ -61,6 +71,22 @@ Reference interaction observed in user-provided screenshots (2026-10-08): dashed
 
 ## T017 — Compact presentation workflow
 
+2026-10-22 Controls access implemented: clicking the green move label brings Controls forward, restoring a closed/minimized panel. Label drags (3-point threshold), Escape, resize handles and border/interior click-through retain their separate behavior. Thirty-two tests, release/signature and native event callback checks passed. Physical focus/drag checks with another app active remain pending. Controls exclusion from Teams' picker is not implemented: no supported global exclusion API was established, and Apple's legacy sharingType.none is not a reliable solution. Close Controls during source selection and reopen from the label. Current user report is general basic usability, not detailed Teams acceptance.
+
+2026-10-22 cleanup completed: user rejected the transparent mirror-over-source experiment as nonworking. Removed its UI/menu controls, opacity choices, model state, window methods and floating-Controls observation. Lifecycle cleanup now handles only visible/parked output. Selection/outline windows and process exclusion are preserved. Thirty-two tests, signed release build and native parked-window regression checks passed. Next: normal parked-output/startup and Teams acceptance.
+
+2026-10-22 startup correction: removed the explicit visible output presentation before capture starts; park the concealed output before awaiting capture or permissions. Suppress visible overlay restoration during lifecycle transitions and order out failed starts. Thirty-two tests, signed release build and native direct-from-unordered parking/hidden restoration passed. The user reported basic parking appears to work, but flash-free startup and detailed Teams acceptance remain pending.
+
+2026-10-22 off-screen mode implemented: successful capture starts park the same opaque, ordered, unminimized mirror below the union of all display frames. Controls/menu provide Show Mirror / Park Mirror; closing an active visible mirror parks it, and reopening the app shows Controls. Explicit output sizing preserves the requested backing scale without desktop-fit downsampling, including when returning to visible output. Privacy concealment and entire-process exclusion are unchanged; stop/error/display changes clear content before restoring and ordering out parked output. Thirty-two unit tests, signed release build and a real-desktop native window diagnostic passed (placement, backing dimensions on the current 1x display, oversized restore, window identity and overlay transitions). No actual capture, Teams, mixed-DPI or display-removal acceptance yet. Next: test picker discovery and receiver cadence/quality with dynamic content, Show/Park, Hide/Resume, live crop resizing, stop/error, display changes and sleep.
+
+2026-10-22 native research completed: installed local REA 6.7.0, Node 24.11.1 and Ghidra 12.1.4 with a source-built ARM64 decompiler; scoped readiness passed. Decompilation and independent instruction checks establish RegionMirror's opaque off-screen output, identity-preserving placement, close-button interception, frame delivery independent of the hidden flag, and separate Presenter View. See `REGIONMIRROR_REVERSE_ENGINEERING.md` for exact addresses, evidence, limitations and the proposed bounded experiment. Its placement is relative to the primary display, not the union of displays; do not copy that assumption. No app implementation changed. Next: implement and validate a reversible off-screen mode preserving backing dimensions, entire-process exclusion and separate privacy concealment. Actual RegionMirror/Teams behavior, cadence, mixed-DPI and multi-monitor acceptance remain unverified.
+
+2026-10-09 overlay experiment (retired 2026-10-22): originally implemented and checked native geometry/opacity, but the user reported it does not work. Removed completely; no further overlay acceptance work is planned.
+
+2026-10-09 user clarification: Controls is useful; priority is evaluating window-free output alternatives and keeping full-resolution output from consuming the desktop. See `OUTPUT_RESEARCH.md` for six alternative architectures, inspected open-source implementations, mirror variants, and evidence limits. No implementation selected. RegionMirror live UI observation failed (timeouts, then ScreenCaptureKit -3811) even after the user confirmed its region was active; targeted logs provided no placement evidence. Next: restore observation capability and compare equal-resolution output states with an actual receiver. Controls redesign is not the current requested work.
+
+2026-10-09 concept investigation (no implementation): the installed RegionMirror 1.5.1 (38) links ScreenCaptureKit and contains `MirrorWindowController`, `OffScreenCapableWindow`, and diagnostic strings including "Parked mirror window fully off-screen at" and "Mirror window off-screen positioning complete". This is strong static evidence of an off-screen mirror, not runtime confirmation of its current placement or Teams behavior. The vendor describes sharing its normal output window: https://regionmirror.com/teams-share-part-of-screen/. Apple documents full single-window capture when occluded/off-screen and a paused stream when minimized: https://developer.apple.com/videos/play/wwdc2022/10155/. Next experiment: preserve output identity/backing size, compare picker discovery before/after off-screen placement, and verify continuously changing content in an actual Teams receiver; distinguish OS capture support from app rendering cadence and Teams discovery. No manual acceptance or architecture change yet.
+
 The user's screenshots show menu-bar commands for stopping, saving/managing presets, a presenter preview, and hiding the outline/toolbar. The user reports no visible mirror. This demonstrates the visible UX, but does not establish how the reference maintains the shareable output or hides it.
 
 Move routine actions into the menu bar and a small optional toolbar outside the capture area: stop, hide/resume output, edit region, and mirror scale. Keep full Controls available for setup/presets. Add a reversible Show Mirror action. Investigate whether an unminimized mirror behind other windows or off-screen remains selectable and updating in the user's Teams capture mode. Preserve 1:1 backing dimensions and retain the visible-mirror fallback. Do not equate a transparent outline with capture of underlying apps, and do not promise alpha-zero/orderOut/minimized capture without measurement. Avoid OS private APIs or weakening permissions.
@@ -78,6 +104,8 @@ Inspect source pixels, capture output pixels, mirror content backing dimensions,
 Acceptance: sharp local static text relative to the source, verified pixel mapping on Retina and non-Retina displays, no unintended intermediate downsample in natural-size mode, and an A/B Teams call against direct source-window sharing. Record remaining Teams compression separately; do not promise lossless transmission. Sol recommended for rendering changes.
 
 ## T008 — Sizing and quality settings
+
+2026-10-09: standard-size menu implemented for active source regions: 1280×720, 1920×1080, 2560×1440, 3840×2160 and 1024×768 capture pixels. Convert through source display backing scale, center around current region and clamp position. Disable entries that do not fit; never silently shrink them. Save an applied size using existing named regions. Standard sizing resets aspect lock to Free. Native UI/Teams checks remain pending; FPS and output-cap settings are not implemented. The following original plan's logical-point examples are superseded by capture-pixel presets.
 
 Add centered 16:9 size presets (e.g. 1280×720 logical points when they fit), 15/30 fps, and output cap choices 1920/2560/3840 pixels. Persist metadata only. Acceptance: reject oversize presets, retain aspect ratio, output dimensions and FPS update as selected. Test sizing policy. Luna recommended after T006.
 

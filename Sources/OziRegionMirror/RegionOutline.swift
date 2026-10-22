@@ -3,7 +3,9 @@ import RegionCore
 
 @MainActor
 final class RegionOutline {
+    var aspectRatio: Double?
     var didEdit: ((CaptureRegion) -> Void)?
+    var didRequestControls: (() -> Void)?
     private var region: CaptureRegion?
     private var screen: NSScreen?
     private var border: NSWindow?
@@ -24,10 +26,11 @@ final class RegionOutline {
         for handle in RegionHandle.allCases {
             let window = makeWindow(interactive: true)
             let view = RegionHandleView(handle: handle)
+            view.activate = { [weak self] in self?.didRequestControls?() }
             view.begin = { [weak self] in self?.region }
             view.change = { [weak self] initial, delta in
                 guard let self, let screen = self.screen else { return }
-                let updated = RegionEditing.applying(handle, delta: delta, to: initial, bounds: screen.regionCaptureBounds)
+                let updated = RegionEditing.applying(handle, delta: delta, to: initial, bounds: screen.regionCaptureBounds, aspectRatio: self.aspectRatio)
                 self.setRegion(updated)
                 self.didEdit?(updated)
             }
@@ -123,10 +126,16 @@ private final class RegionHandleView: NSView {
     var begin: (() -> CaptureRegion?)?
     var change: ((CaptureRegion, CGSize) -> Void)?
     var cancel: ((CaptureRegion) -> Void)?
+    var activate: (() -> Void)?
     private var initial: CaptureRegion?
     private var anchor: CGPoint = .zero
+    private var didDrag = false
 
-    init(handle: RegionHandle) { self.handle = handle; super.init(frame: .zero) }
+    init(handle: RegionHandle) {
+        self.handle = handle
+        super.init(frame: .zero)
+        if handle == .move { toolTip = "Click to show Controls. Drag to move the region; Escape cancels the drag." }
+    }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -144,6 +153,7 @@ private final class RegionHandleView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         initial = begin?()
+        didDrag = false
         anchor = NSEvent.mouseLocation
         window?.makeKey()
         window?.makeFirstResponder(self)
@@ -152,12 +162,18 @@ private final class RegionHandleView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let initial else { return }
         let point = NSEvent.mouseLocation
-        change?(initial, CGSize(width: point.x - anchor.x, height: anchor.y - point.y))
+        let delta = CGSize(width: point.x - anchor.x, height: anchor.y - point.y)
+        // Keep a label click from moving the crop or stealing drag focus for Controls.
+        if handle == .move, !didDrag, hypot(delta.width, delta.height) < 3 { return }
+        didDrag = true
+        change?(initial, delta)
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard initial != nil else { return }
         mouseDragged(with: event)
         initial = nil
+        if handle == .move, !didDrag { activate?() }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -171,7 +187,7 @@ private final class RegionHandleView: NSView {
         NSColor.systemGreen.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 3, yRadius: 3).fill()
         if handle == .move {
-            let text = "Drag to move • Esc to cancel"
+            let text = "Click: Controls • Drag: move"
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.black
             ]

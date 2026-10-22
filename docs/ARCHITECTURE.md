@@ -8,6 +8,8 @@ Swift Package Manager builds one executable and a small testable core. AppKit ow
 | --- | --- |
 | `RegionCore/CaptureRegion.swift` | Logical crop, validation, AppKit coordinate conversion, output size, Codable preset |
 | `RegionCore/MirrorSizing.swift` | Proportional percentage sizing, explicit screen fit, actual pixel scale |
+| `RegionCore/MirrorPlacement.swift` | Output placement outside the union of all AppKit display frames |
+| `MirrorWindow.swift` | Stable output identity, parked/visible presentation, explicit unconstrained output sizing |
 | `RegionCore/RegionEditing.swift` | Edge/move geometry, minimum size and bounds, latest-request queue |
 | `RegionOutline.swift` | Dashed click-through border, eight input handles, drag label, Escape cancellation |
 | `RegionSelector.swift` | One translucent selection window per display; drag/Escape; completes once |
@@ -17,7 +19,15 @@ Swift Package Manager builds one executable and a small testable core. AppKit ow
 | `Resources/Info.plist` | Stable local bundle identity and minimum OS |
 | `scripts/` | Tests and app packaging/ad-hoc signing |
 
+## Application presence and Controls sizing
+
+The outline's move-label click emits a callback through AppModel to the existing delegate showControls action, which deminiaturizes, orders forward and activates Controls. Activation occurs on mouse-up only if the move label did not cross a 3-point drag threshold; Escape cancels the interaction without activating Controls. Resize handles and the click-through outline/interior do not emit this request. This avoids stealing drag focus from Escape handling. We do not set legacy window sharing flags to claim that Controls cannot be selected or captured by Teams. ScreenCaptureKit picker exclusions are controlled by the capturing app, not a global policy that this app can apply to another process.
+
+The menu-bar Dock toggle switches regular/accessory activation policy and persists `hideDockIcon` in bundle UserDefaults; startup applies it before running the application. Status menu remains available in either policy. Menu titles read actual policy when opening. Icon artwork is assigned once at launch. Controls reports its natural SwiftUI content height through a preference to the delegate, which resizes the existing window while preserving the top edge and clamping to the usable desktop. Content height is capped at 760 points with scrolling only for overflow; fixed width 620. No timer, polling or capture-stream changes.
+
 ## Coordinate contract
+
+Successful capture starts park the existing output window below the union of all connected display frames with a 50-point gap. This is global AppKit geometry, independent of the source crop. A parked window remains ordered, opaque, unminimized and non-key, with its frame constraint bypassed. Show Mirror returns it to a live display; the model reapplies the selected scale using the actual destination backing conversion. Active close-button requests park instead of destroying the window. Reopening the application shows Controls. Geometry/backing notifications reapply sizing or placement without timers. Privacy Hide still conceals outgoing content; it does not toggle parking. Stop/error/display changes conceal first, then restore and order out parked output. Display changes still stop capture and require reselection. The output has only visible and parked presentation; the sample rendering and entire-process exclusion remain unchanged. Teams interoperability is pending acceptance.
 
 AppKit screen frames use global bottom-left coordinates and may have negative origins. Selection views use display-local bottom-left points. `CaptureRegion` stores display-local **top-left logical points**:
 
@@ -30,13 +40,19 @@ The selector clips to its screen bounds before converting. `SCStreamConfiguratio
 
 Test actual mixed-DPI capture before changing these rules. Avoid combining `SCDisplay.width` pixels with `NSScreen.frame` points.
 
-Each successful start returns configured capture pixel dimensions to the model and resets mirror size to 100%. `NSWindow.convertFromBacking` converts capture pixels into content points on the mirror's current display. 75% and 50% scale both dimensions. Usable screen size excludes window chrome; oversized requests fit proportionally and show a notice rather than claim 1:1. The content aspect ratio follows capture pixel dimensions, including even rounding. Root and video layers update `contentsScale` when backing properties change. A display move reapplies the chosen percentage; manual resizing switches to a custom scale. Metadata diagnostics use `NSView.convertToBacking` and do not save image data. Resizing never restarts capture or replaces the shared window.
+Each successful start returns configured capture pixel dimensions to the model and resets mirror size to 100%. `NSWindow.convertFromBacking` converts capture pixels into content points on the mirror's current display. 75% and 50% scale both dimensions. Explicit output sizes bypass frame constraints and do not fit down to the desktop; oversized visible output keeps its title bar accessible and offers parking. The content aspect ratio follows capture pixel dimensions, including even rounding. Root and video layers update `contentsScale` when backing properties change. A display move reapplies the chosen percentage; manual resizing switches to a custom scale. Metadata diagnostics use `NSView.convertToBacking` and do not save image data. Resizing never restarts capture or replaces the shared window. Physical backing preservation while parking on mixed-DPI configurations remains a manual acceptance item.
 
 ## Usable capture bounds
 
 `NSScreen.regionCaptureBounds` converts the visible desktop rectangle into display-local top-left points via `RegionEditing.captureBounds`. Exclude the menu bar/Dock and inset by 7 points so 14-point handles fit without shifting their centers. Initial selection clips to these bounds; live edits clamp to them; valid legacy presets fit into them on activation; capture rejects out-of-bounds regions. Overlays and the full-screen selector override `constrainFrameRect` because shared geometry already owns positioning. Without this, AppKit can move UI separately from the source crop near the menu bar. The capture-coordinate origin remains the full screen's top-left, not the visible area's origin.
 
+## Standard sizes and aspect lock
+
+Standard resolutions are capture pixels, divided by source backing scale before `RegionEditing.sized` validates exact logical dimensions and clamps their centered position. Unavailable sizes are disabled. Saved-region dimension labels derive pixels using the current source display scale and existing output cap; persistence remains logical points. Aspect lock lives in model/outline session state, with no preset migration. `RegionEditing.applying` optionally projects corner deltas onto a fixed-ratio diagonal; side edits retain the perpendicular center. Opposite anchors, bounds and minimum dimensions constrain size together. Move/Escape behavior is unchanged. Standard sizes/ratio changes use the same coalesced update queue. New selection/preset/standard size resets the lock.
+
 ## Capture lifecycle
+
+Before asynchronous capture startup, the model conceals and orders out prior output presentation, restores any parked geometry without ordering it on screen, then parks the window before ordering it. It does not call `makeKeyAndOrderFront` while starting. Permission waits therefore do not require a visible output placeholder. Successful startup sizes and reveals content in the already parked output; a failed start restores and orders it out. Explicit Show Mirror remains the normal live output presentation action.
 
 Controls serialize user starts/stops via `busy`. Start first invalidates old rendering and stops the old stream; it validates the display and crop, excludes the current process ID from the content filter, creates the cropped stream, and starts it. The output remains concealed until start succeeds. A source change reuses the existing mirror NSWindow but currently creates a fresh stream. Seamless `updateConfiguration` / `updateContentFilter` is future work.
 
