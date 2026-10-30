@@ -14,6 +14,13 @@ cp Resources/Info.plist "$app_path/Contents/Info.plist"
 cp Resources/AppIcon.icns "$app_path/Contents/Resources/AppIcon.icns"
 codesign --force --sign "$signing_identity" --identifier local.ozi.regionmirror "$app_path"
 codesign --verify --strict "$app_path"
+# Refresh bundle metadata used by other apps, including window-sharing pickers.
+# Updating the running Dock image alone does not refresh Launch Services.
+touch "$app_path"
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if ! "$lsregister" -f "$app_path"; then
+    echo "Warning: macOS could not refresh app registration. Reopen the app before checking its icon."
+fi
 if [ "$signing_identity" = "-" ]; then
     echo "Ad-hoc build: Screen Recording permission may need to be renewed after code changes."
     echo "For stable identity, set OZI_SIGNING_IDENTITY to an installed Apple Development or Developer ID signing identity."

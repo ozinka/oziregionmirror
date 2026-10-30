@@ -6,9 +6,12 @@ import RegionCore
 @MainActor
 final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     var didRequestControls: (() -> Void)?
+    let presentation = PresentationSession()
+    @Published private(set) var drawing = false
+    @Published private(set) var presentingCanvas = false
     @Published var status = "Select a region, then share the mirror window in Teams."
-    @Published var active = false
-    @Published var busy = false
+    @Published var active = false { didSet { refreshToolbar() } }
+    @Published var busy = false { didSet { refreshToolbar() } }
     @Published var hidden = false
     @Published var presets: [RegionPreset] = []
     @Published var presetName = ""
@@ -16,7 +19,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     @Published var mirrorScaleNotice = ""
     @Published var mirrorScalePercent: Int?
     @Published var editingRegion = true
-    @Published var adjustingRegion = false
+    @Published var adjustingRegion = false { didSet { refreshToolbar() } }
     @Published private(set) var regionRatio = "Free"
     @Published private(set) var parkedMirror = false
     private var capturePixels: CGSize?
@@ -27,6 +30,22 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     private let mirror = MirrorView(frame: CGRect(x: 0, y: 0, width: 960, height: 540))
     private var mirrorWindow: MirrorWindow!
     private let outline = RegionOutline()
+    private var lastOutlineEditing: Bool?
+    private var selectingRegion = false
+    private lazy var presentationToolbar = PresentationToolbar(session: presentation) { [weak self] action in
+        guard let self else { return }
+        switch action {
+        case .drawing: self.toggleDrawing()
+        case .freeze: self.toggleFreeze()
+        case .board: self.toggleBoard()
+        case .controls:
+            self.presentation.drawing = false
+            self.didRequestControls?()
+        case .hide: self.toggleHidden()
+        case .stop: self.stop()
+        }
+    }
+    private lazy var annotationEditor = AnnotationEditor(session: presentation)
     private var regionUpdates = LatestRegionQueue()
     private var regionUpdateTask: Task<Void, Never>?
     private lazy var capture = CaptureController(output: mirror)
@@ -45,6 +64,9 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
         mirrorWindow.delegate = self
         mirrorWindow.isReleasedWhenClosed = false
         mirrorWindow.center()
+        mirror.attachPresentation(presentation)
+        presentation.didChange = { [weak self] in self?.refreshPresentation() }
+        annotationEditor.finishDrawing = { [weak self] in self?.presentation.drawing = false }
         capture.didFail = { [weak self] error in
             guard let self else { return }
             self.active = false
@@ -52,6 +74,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
             self.invalidateRegionUpdates()
             self.outline.hide()
             self.mirror.setConcealed(true, text: "Capture stopped")
+            self.presentation.reset()
             self.dismissMirror()
             self.status = CaptureController.recoveryMessage(for: error)
         }
@@ -67,11 +90,16 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
 
     func selectRegion() {
         guard !busy else { return }
+        selectingRegion = true
+        presentationToolbar.hide()
+        presentation.drawing = false
+        lastOutlineEditing = nil
         outline.setEditing(false)
         selector.select { [weak self] region in
             guard let self else { return }
+            self.selectingRegion = false
             guard let region else {
-                self.outline.setEditing(self.editingRegion)
+                self.refreshPresentation()
                 return
             }
             self.start(region)
@@ -97,6 +125,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
         hidden = false
         outline.hide()
         mirror.setConcealed(true, text: "Starting capture…")
+        presentation.reset()
         dismissMirror()
         // Order the output only after moving it off the desktop, including while permission is pending.
         applyingMirrorSize = true
@@ -113,15 +142,18 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
                 self.region = region
                 capturePixels = pixels
                 active = true
+                presentation.begin(size: pixels)
                 mirrorWindow.contentAspectRatio = pixels
                 parkMirror()
                 setMirrorScale(100)
                 mirror.setConcealed(false)
                 outline.show(region, editing: editingRegion)
+                refreshPresentation()
                 status = "Live • \(Int(region.width)) × \(Int(region.height)) points • 30 fps target"
             } catch {
                 active = false
                 mirror.setConcealed(true, text: "Capture unavailable")
+                presentation.reset()
                 dismissMirror()
                 if captureRevision == revision {
                     status = CaptureController.recoveryMessage(for: error)
@@ -140,6 +172,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
         hidden = false
         outline.hide()
         mirror.setConcealed(true, text: "Sharing stopped")
+        presentation.reset()
         dismissMirror()
         Task { await capture.stop(); busy = false }
         status = "Stopped. The mirror window contains no captured image."
@@ -154,6 +187,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
         hidden = false
         outline.hide()
         mirror.setConcealed(true, text: "Display configuration changed")
+        presentation.reset()
         dismissMirror()
         if !busy {
             busy = true
@@ -165,7 +199,50 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     func toggleHidden() {
         guard active && !busy else { return }
         hidden.toggle()
+        presentation.isConcealed = hidden
         mirror.setConcealed(hidden)
+        if hidden { presentation.drawing = false }
+        refreshPresentation()
+    }
+
+    func toggleDrawing() {
+        guard active, !busy, !hidden, !adjustingRegion else { return }
+        presentation.drawing.toggle()
+    }
+
+    func toggleFreeze() {
+        guard active, !busy, !hidden, !adjustingRegion, presentation.mode != .board else { return }
+        if presentation.mode == .frozen {
+            presentation.setMode(.live)
+        } else {
+            presentation.setMode(.frozen, snapshot: mirror.snapshotFrame())
+        }
+    }
+
+    func toggleBoard() {
+        guard active, !busy, !hidden, !adjustingRegion else { return }
+        presentation.toggleBoard()
+    }
+
+    private func refreshPresentation() {
+        mirror.refreshPresentation()
+        if drawing != presentation.drawing {
+            drawing = presentation.drawing
+        }
+        let hasCanvas = presentation.drawing || presentation.mode != .live
+        if presentingCanvas != hasCanvas { presentingCanvas = hasCanvas }
+        let showAnnotations = presentation.drawing ||
+            (presentation.mode == .live && !presentation.source.elements.isEmpty)
+        if active, !hidden, !selectingRegion, showAnnotations, let region, let screen = screen(for: region) {
+            annotationEditor.show(region: region, on: screen)
+        } else { annotationEditor.hide() }
+        annotationEditor.redraw()
+        refreshToolbar()
+        let editOutline = editingRegion && !hasCanvas
+        if lastOutlineEditing != editOutline {
+            lastOutlineEditing = editOutline
+            outline.setEditing(editOutline)
+        }
     }
 
     private func dismissMirror() {
@@ -214,7 +291,17 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     func toggleRegionEditing() {
         guard active && !busy else { return }
         editingRegion.toggle()
-        outline.setEditing(editingRegion)
+        refreshPresentation()
+    }
+
+    private func refreshToolbar(region override: CaptureRegion? = nil) {
+        guard active, presentation.enabled, !selectingRegion,
+              let region = override ?? region, let screen = screen(for: region) else {
+            presentationToolbar.hide()
+            return
+        }
+        presentationToolbar.show(region: region, on: screen,
+                                 locked: busy || hidden || adjustingRegion, hidden: hidden)
     }
 
     private func invalidateRegionUpdates() {
@@ -225,10 +312,12 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     private func enqueueRegionUpdate(_ region: CaptureRegion) {
-        guard active && !busy else { return }
+        guard active && !busy && !presentingCanvas else { return }
         regionUpdates.submit(region)
+        refreshToolbar(region: region)
         guard regionUpdateTask == nil else { return }
         adjustingRegion = true
+        refreshToolbar(region: region)
         let revision = captureRevision
         regionUpdateTask = Task {
             defer {
@@ -250,6 +339,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
                     let changedSize = capturePixels != pixels
                     self.region = next
                     capturePixels = pixels
+                    presentation.canvasSize = pixels
                     if changedSize {
                         applyingMirrorSize = true
                         mirrorWindow.contentAspectRatio = pixels
@@ -258,6 +348,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
                         if customSizing { requestedMirrorScale = nil }
                     }
                     mirror.setConcealed(hidden)
+                    refreshPresentation()
                     status = "Live • \(Int(next.width)) × \(Int(next.height)) points • 30 fps target"
                 } catch {
                     guard active, captureRevision == revision, !Task.isCancelled else { return }
@@ -293,6 +384,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
         mirrorScaleNotice = !parkedMirror && (contentSize.width > visible.width || contentSize.height + chrome > visible.height)
             ? "The mirror exceeds this desktop at the selected size. Park Mirror keeps the desktop clear without reducing detail."
             : ""
+        mirror.refreshPresentation()
         updateMirrorScaleLabel()
     }
 
@@ -308,6 +400,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
         guard !applyingMirrorSize, !parkedMirror else { return }
         requestedMirrorScale = nil
         mirrorScaleNotice = ""
+        mirror.refreshPresentation()
         updateMirrorScaleLabel()
     }
 
@@ -350,7 +443,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     private func standardRegion(_ pixels: CGSize) -> CaptureRegion? {
-        guard let region, let screen = screen(for: region), active, !busy, !adjustingRegion else { return nil }
+        guard let region, let screen = screen(for: region), active, !busy, !adjustingRegion, !presentingCanvas else { return nil }
         return RegionEditing.sized(CGSize(width: pixels.width / screen.backingScaleFactor,
                                          height: pixels.height / screen.backingScaleFactor),
                                    around: region, in: screen.regionCaptureBounds)
@@ -367,7 +460,7 @@ final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func setRegionRatio(_ choice: String) {
-        guard active, !busy, !adjustingRegion, let region, let screen = screen(for: region) else { return }
+        guard active, !busy, !adjustingRegion, !presentingCanvas, let region, let screen = screen(for: region) else { return }
         let ratios = ["16:9": 16.0 / 9, "4:3": 4.0 / 3, "1:1": 1.0]
         guard choice != "Free" else {
             regionRatio = choice
@@ -426,7 +519,7 @@ struct ControlsView: View {
                     Button("Stop", action: model.stop).disabled(!model.active)
                 }.disabled(model.busy)
                 Button(model.editingRegion ? "Hide Region Handles" : "Edit Region", action: model.toggleRegionEditing)
-                    .disabled(!model.active || model.busy)
+                    .disabled(!model.active || model.busy || model.presentingCanvas)
                 HStack {
                     Button(model.parkedMirror ? "Show Mirror" : "Park Mirror", action: model.toggleParkedMirror)
                         .disabled(!model.active || model.busy || model.adjustingRegion)
@@ -447,7 +540,7 @@ struct ControlsView: View {
                     Picker("Aspect ratio", selection: Binding(get: { model.regionRatio }, set: model.setRegionRatio)) {
                         ForEach(["Free", "Current", "16:9", "4:3", "1:1"], id: \.self) { Text($0).tag($0) }
                     }
-                }.disabled(!model.active || model.busy || model.adjustingRegion)
+                }.disabled(!model.active || model.busy || model.adjustingRegion || model.presentingCanvas)
                 HStack {
                     Text("Mirror size")
                     ForEach([100, 75, 50], id: \.self) { percent in
@@ -527,6 +620,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Stop", action: #selector(stop), keyEquivalent: ".")
         menu.addItem(withTitle: "Show / Hide Region Handles", action: #selector(toggleRegionEditing), keyEquivalent: "e")
         menu.addItem(withTitle: "Show Mirror", action: #selector(toggleParkedMirror), keyEquivalent: "")
+        menu.addItem(withTitle: "Draw on Region / Finish Drawing", action: #selector(toggleDrawing), keyEquivalent: "d")
+        menu.addItem(withTitle: "Freeze / Resume Live", action: #selector(toggleFreeze), keyEquivalent: "")
+        menu.addItem(withTitle: "Whiteboard / Return to Source", action: #selector(toggleBoard), keyEquivalent: "")
         let sizeItem = NSMenuItem(title: "Mirror Size", action: nil, keyEquivalent: "")
         let sizeMenu = NSMenu(title: "Mirror Size")
         for percent in [100, 75, 50] {
@@ -595,6 +691,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func stop() { model.stop() }
     @objc private func toggleRegionEditing() { model.toggleRegionEditing() }
     @objc private func toggleParkedMirror() { model.toggleParkedMirror() }
+    @objc private func toggleDrawing() { model.toggleDrawing() }
+    @objc private func toggleFreeze() { model.toggleFreeze() }
+    @objc private func toggleBoard() { model.toggleBoard() }
     @objc private func resizeMirror(_ sender: NSMenuItem) { model.setMirrorScale(sender.tag) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

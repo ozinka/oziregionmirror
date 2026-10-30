@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import ScreenCaptureKit
+import CoreImage
 
 final class MirrorView: NSView, SCStreamOutput {
     private let videoLayer = AVSampleBufferDisplayLayer()
@@ -10,6 +11,37 @@ final class MirrorView: NSView, SCStreamOutput {
     private var generation = 0
     private var enabled = false
     private var concealed = true
+    private var latestSampleBuffer: CMSampleBuffer?
+    private var canvas: CanvasView?
+    private var presentation: PresentationSession?
+    private let imageContext = CIContext(options: [.cacheIntermediates: false])
+
+    func attachPresentation(_ presentation: PresentationSession) {
+        self.presentation = presentation
+        let canvas = CanvasView(session: presentation, interactive: false)
+        canvas.frame = bounds
+        canvas.autoresizingMask = [.width, .height]
+        addSubview(canvas, positioned: .below, relativeTo: message)
+        self.canvas = canvas
+        refreshPresentation()
+    }
+
+    func refreshPresentation() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        videoLayer.isHidden = concealed || presentation?.mode != .live
+        canvas?.isHidden = concealed
+        canvas?.needsDisplay = true
+        if !concealed { canvas?.displayIfNeeded() }
+        CATransaction.commit()
+    }
+
+    func snapshotFrame() -> CGImage? {
+        guard !concealed, let sample = latestSampleBuffer,
+              let pixels = CMSampleBufferGetImageBuffer(sample) else { return nil }
+        let image = CIImage(cvPixelBuffer: pixels)
+        return imageContext.createCGImage(image, from: image.extent)
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -62,6 +94,7 @@ final class MirrorView: NSView, SCStreamOutput {
         generation += 1
         lock.unlock()
         videoLayer.flushAndRemoveImage()
+        if !enabled { latestSampleBuffer = nil }
     }
 
     func invalidateQueuedFrames() {
@@ -74,16 +107,23 @@ final class MirrorView: NSView, SCStreamOutput {
         self.concealed = concealed
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        videoLayer.isHidden = concealed
+        videoLayer.isHidden = concealed || presentation?.mode != .live
+        canvas?.isHidden = concealed
         CATransaction.commit()
-        if concealed { videoLayer.flushAndRemoveImage() }
+        if concealed { videoLayer.flushAndRemoveImage(); latestSampleBuffer = nil }
+        else if let sample = latestSampleBuffer { enqueue(sample) }
         message.stringValue = text
         message.isHidden = !concealed
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
                 of type: SCStreamOutputType) {
-        guard type == .screen, sampleBuffer.isValid,
+        guard type == .screen else { return }
+        acceptScreenFrame(sampleBuffer)
+    }
+
+    func acceptScreenFrame(_ sampleBuffer: CMSampleBuffer) {
+        guard sampleBuffer.isValid,
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
                 as? [[SCStreamFrameInfo: Any]],
               let status = attachments.first?[.status] as? Int,
@@ -99,9 +139,16 @@ final class MirrorView: NSView, SCStreamOutput {
             let current = self.enabled && self.generation == token
             self.pending = false
             self.lock.unlock()
-            guard current && !self.concealed else { return }
-            if self.videoLayer.status == .failed { self.videoLayer.flush() }
-            if self.videoLayer.isReadyForMoreMediaData { self.videoLayer.enqueue(sampleBuffer) }
+            guard current else { return }
+            // A static source may send its only complete frame before startup reveals the output.
+            self.latestSampleBuffer = sampleBuffer
+            guard !self.concealed else { return }
+            self.enqueue(sampleBuffer)
         }
+    }
+
+    private func enqueue(_ sample: CMSampleBuffer) {
+        if videoLayer.status == .failed { videoLayer.flush() }
+        if videoLayer.isReadyForMoreMediaData { videoLayer.enqueue(sample) }
     }
 }

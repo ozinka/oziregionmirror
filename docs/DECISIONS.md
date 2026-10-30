@@ -29,3 +29,7 @@ Build the capture workflow first. Presentation extras do not prove Teams interop
 Build under `build/` with identifier `local.ozi.regionmirror`. No developer-account requirement or external installation. Developer ID signing/notarization is optional future distribution work; test local TCC rebuild behavior first.
 
 2026-10-08 update: the user observed stale enabled permission after a rebuild. Ad-hoc identity uses a code-version hash; the script now supports an existing signing certificate through OZI_SIGNING_IDENTITY and warns on ad-hoc builds. Consistent certificate signing is preferred for repeated local development when available. Do not use an identifier-only designated requirement as a shortcut: it removes signer verification and can allow impersonation.
+
+## ADR-008 — Shared vector canvas over live video (2026-10-22)
+
+Keep the live sample-buffer renderer and stable output window. Add normalized vector/image documents rendered both in the output and a deliberate local input surface. This avoids capturing our markup recursively or converting every live frame to a CPU image. Freeze converts one accepted buffer on request; whiteboard has separate history. All captured pixels remain in memory and are discarded on lifecycle invalidation. Allow only explicit whiteboard PNG exports to user-selected destinations; do not add screenshot or video persistence. Retain bounded assets for Undo/Redo rather than silently losing images on Clear. Manual capture/Teams and performance evidence is still required.
