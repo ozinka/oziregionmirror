@@ -1,8 +1,10 @@
 # Current handoff
 
-Updated: 2026-10-27. Read this first, then one task in `TASKS.md`.
+Updated: 2026-10-30. Read this first, then one task in `TASKS.md`.
 
 T018 Teams icon follow-up (2026-10-27): user reported a pale placeholder in the Teams window picker. Existing ICNS artwork and bundle declaration are intact. Build now touches the completed bundle and force-refreshes its Launch Services registration after signing, with a warning if registration fails. Registration initially failed in restricted execution (-10822); a permitted host refresh succeeded, and host registration inspection confirms this exact bundle's `Contents/Resources/AppIcon.icns`. Forty-three tests, release build, plist, icon-copy and signature checks passed. Cause of the Teams placeholder is not proven; next: relaunch the packaged app and reopen the Teams picker (restart Teams if cached). Teams appearance remains unverified; Dock acceptance is unchanged. No app launch, capture, commit or global cache reset performed.
+
+T021 release preparation (2026-10-30): README now includes download/install instructions and app-scoped quarantine removal. GitHub Actions tests and builds an ad-hoc signed Apple silicon ZIP with SHA-256 checksums; matching version tags publish a prerelease using RELEASE_NOTES.md. Local 43 tests and signed release build passed; Launch Services refresh warned under restricted execution. Publishing v0.1.0 is the next step. Native/Teams/permission/mixed-DPI acceptance remains pending; no new capture was performed.
 
 ## Goal and constraints
 

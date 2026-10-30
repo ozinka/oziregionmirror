@@ -4,6 +4,19 @@ A local macOS app that mirrors a selected rectangular screen region into an ordi
 
 Independent implementation inspired by the public workflow at [RegionMirror](https://regionmirror.com/). No proprietary code or assets are used. The existing MIT license is retained.
 
+## Download and launch
+
+Download the Apple silicon ZIP from [GitHub Releases](https://github.com/ozinka/oziregionmirror/releases), unzip it, and move **OziRegionMirror.app** to **Applications**. Releases are previews while manual Teams and multi-monitor checks remain pending. Intel release binaries are not currently provided.
+
+The app is ad-hoc signed and not notarized. If macOS blocks a download you trust, remove the quarantine extended attribute from this app only, then launch it:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/OziRegionMirror.app
+open /Applications/OziRegionMirror.app
+```
+
+Adjust the path if you placed the app elsewhere. This does not grant Screen Recording access; enable that separately in System Settings as described below. No system-wide Gatekeeper change is required.
+
 ## Requirements and build
 
 - macOS 13 or later; currently compiled on Apple silicon with macOS 26.7.1 and Swift 6.3.3.
@@ -60,13 +73,25 @@ Output is no longer reduced automatically to fit the desktop. Oversized visible 
 
 The menu bar icon reopens Controls and exposes capture commands. Use **Hide Dock Icon / Show Dock Icon** there to toggle Dock visibility; the choice is remembered after relaunch. Controls and the menu bar remain available while the Dock icon is hidden. Command-N selects a region, Command-B toggles hiding, and Command-period stops while this app is active. These are app shortcuts, not global shortcuts.
 
+## Drawing, frozen frames and images
+
+After selecting a source region, a compact icon toolbar appears below the green frame. Tall regions use a vertical toolbar beside the frame; placement adapts to available desktop space. If no outside space remains, the toolbar stays inside the visible desktop. Hover over an icon for its name. Drawing tools are separate from Controls, which remains for setup and saved regions.
+
+- Click **Pen**, **Arrow**, **Rectangle**, **Ellipse**, **Text** or **Move Image** to start drawing directly. The palette icon opens color and line width options. Text opens a small entry dialog when you click. The cursor icon (**Finish Drawing / Use Desktop**) restores ordinary desktop input. Escape cancels a gesture; Escape with no gesture exits drawing. Crop handles are disabled while drawing or presenting a frozen frame/board.
+- **Freeze Frame** holds the latest complete source frame in memory for markup. **Resume Live** returns to current capture with its annotations. **Whiteboard** switches the same shared output to a solid white board; **Return to Source** restores the previous live/frozen mode. Source and board annotations have separate histories.
+- **Undo**, **Redo** and **Clear Canvas** (in the ellipsis menu) operate on the current canvas. Command-Z / Command-Shift-Z also work while the drawing surface has focus. Clear can be undone.
+- The image icon opens **Open Image…**, **Paste Image**, **Delete Selected Image** and **Save Board PNG…**. Opening or pasting inserts a static image and selects **Move Image**. Drag its body to move it, or its blue bottom-right corner to resize with preserved proportions. Click an image to select it; **Delete Selected Image** or Delete removes the selected image. Command-V pastes a bitmap when the drawing surface has focus.
+- **Save Board PNG…** exports only the whiteboard to a destination you choose, at capture pixel dimensions. Live/frozen captured frames are never exported or automatically saved. Imports accept up to 32 MB, decode to at most 2048 pixels on the longest side and have a 64 MB combined decoded-image budget. History is limited to 50 changes and 256 items per canvas.
+
+The ellipsis menu also provides **Hide View / Resume View**, **Controls…** and **Stop Sharing**. Hide View covers all outgoing layers, including annotations, frozen frames and the board, and exits drawing. Stop, errors, display changes and new captures discard the presentation session, frozen frame and imported images from memory. The editor is an input/markup surface, not a second mirror: it does not restore the rejected transparent output-overlay experiment. The entire process remains excluded from source capture. Actual drawing/capture/Teams acceptance and mixed-DPI checks remain pending.
+
 ## Current status
 
-The implementation includes selection, capture, self-process exclusion, live region move/resize handles, bounded frame delivery, output concealment, percentage mirror sizing, off-screen parking, presets, and local app packaging with an original application icon. The user confirmed the Dock icon appears; it is assigned once at launch without timers or repeated refresh. Thirty-two unit tests pass. The user confirmed basic operation and Teams transmission before off-screen parking was added, but reported poor quality before sizing improvements. Parking, new editing behavior, corrected Teams quality, and permission recovery still require the manual acceptance checks in `docs/TESTING.md`.
+The implementation includes selection, capture, self-process exclusion, live region move/resize handles, bounded frame delivery, output concealment, percentage mirror sizing, off-screen parking, presets, and local app packaging with an original application icon. The user confirmed the Dock icon appears; it is assigned once at launch without timers or repeated refresh. Forty-three unit tests pass. The user confirmed basic operation and Teams transmission before off-screen parking was added, but reported poor quality before sizing improvements. Parking, new editing behavior, corrected Teams quality, and permission recovery still require the manual acceptance checks in `docs/TESTING.md`.
 
 An area is visible to the audience if it appears inside the selected rectangle, including notifications and other apps. Use Hide View before sensitive activity. This app does not initiate or stop Teams sharing; Teams owns the call and its sharing state.
 
-Dragging the outline updates the active stream. Selecting another region/preset through Controls currently restarts capture briefly while retaining the mirror window. Cross-display dragging, annotations, whiteboard, zoom loupe, global shortcuts, compact toolbar, and full feature parity are planned in the backlog.
+Dragging the outline updates the active stream. Selecting another region/preset through Controls currently restarts capture briefly while retaining the mirror window. Cross-display dragging, zoom loupe, global shortcuts and full feature parity are planned in the backlog. Drawing, freeze, whiteboard and image tools are implemented and awaiting manual acceptance.
 
 ## Development docs
 
@@ -77,3 +102,9 @@ Dragging the outline updates the active stream. Selecting another region/preset 
 - [Decisions](docs/DECISIONS.md): why the architecture exists.
 - [Testing](docs/TESTING.md): automated and manual validation.
 - [AI workflow](docs/AI_WORKFLOW.md): economical model selection and reusable prompts.
+
+## Automated builds and releases
+
+[GitHub Actions](https://github.com/ozinka/oziregionmirror/actions/workflows/build.yml) runs unit tests, builds and verifies an ad-hoc signed Apple silicon app, and uploads a ZIP with SHA-256 checksums on main pushes, pull requests and manual runs. Native desktop and Teams checks remain manual.
+
+To publish a preview, update the bundle version and `docs/RELEASE_NOTES.md`, commit, and push a matching `v<version>` tag. The workflow checks the version and publishes a GitHub prerelease with the ZIP and checksums. Builds use the standard `macos-15` Apple silicon runner documented in [GitHub runner images](https://github.com/actions/runner-images).

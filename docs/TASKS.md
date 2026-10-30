@@ -25,6 +25,10 @@ Statuses: `implemented` means code exists and automated validation passed; `acce
 | T019 | Compact Controls, saved-region dimensions and aspect lock | implemented; manual checks pending | M | Sol | T007 |
 | T020 | Dock visibility and adaptive Controls layout | implemented; manual checks pending | S | Luna | T019 |
 
+## T021 — Build automation and first GitHub release
+
+Implemented 2026-10-30: CI unit tests, signed Apple silicon app packaging, SHA-256 checksums and tag-triggered prerelease publication. README documents download, quarantine attribute removal and permission renewal; release notes describe preview limitations. Local 43 tests and release signature verification passed. Remote workflow and release publication pending. Manual acceptance stays open.
+
 ## T020 — Dock visibility and Controls layout
 
 Implemented 2026-10-09: Hide Dock Icon / Show Dock Icon in the menu bar uses `NSApplication.setActivationPolicy` and persists `hideDockIcon`; startup applies it before the event loop. Both menu copies update their title from actual activation policy. Controls adapts to natural content height up to 760 points or usable display height, preserving its top edge. Width 620 points; scrolling only beyond the cap. Saved-region dimensions are right-aligned in the name row; position coordinates follow the dimensions in that row. Native five-preset layout with diagnostics/notice measured 697 points; both policy transitions passed. No capture or user preference writes in the diagnostic. Manual pending: toggle from real menu during capture, reopen Controls while Dock-hidden, relaunch persistence, long names/unavailable displays and overflow at ten entries/small displays.
