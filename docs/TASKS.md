@@ -24,10 +24,11 @@ Statuses: `implemented` means code exists and automated validation passed; `acce
 | T018 | Original macOS application icon | Dock accepted; Teams registration refresh implemented, picker check pending | S | Luna | T001 |
 | T019 | Compact Controls, saved-region dimensions and aspect lock | implemented; manual checks pending | M | Sol | T007 |
 | T020 | Dock visibility and adaptive Controls layout | implemented; manual checks pending | S | Luna | T019 |
+| T021 | Build automation and first GitHub release | implemented; v0.1.0 prerelease published | S | Sol | T001 |
 
 ## T021 — Build automation and first GitHub release
 
-Implemented 2026-10-30: CI unit tests, signed Apple silicon app packaging, SHA-256 checksums and tag-triggered prerelease publication. README documents download, quarantine attribute removal and permission renewal; release notes describe preview limitations. Local 43 tests and release signature verification passed. Remote workflow and release publication pending. Manual acceptance stays open.
+Implemented 2026-10-30: CI unit tests, signed Apple silicon app packaging, SHA-256 checksums and tag-triggered prerelease publication. README documents download, quarantine attribute removal and permission renewal; release notes describe preview limitations. Local 43 tests and release signature verification passed. Main and tag workflows passed; v0.1.0 prerelease published with ZIP and checksums. Manual acceptance stays open.
 
 ## T020 — Dock visibility and Controls layout
 
